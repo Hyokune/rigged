@@ -34,6 +34,8 @@ export interface AppState {
   lobby: { players: PublicPlayer[] } | null;
   /** your seat (-1 if none) */
   you: number;
+  /** seats played from this device: yours, plus (on the host) keyboard players. Other claws are faded. */
+  mySeats: number[];
   /** the round currently on screen */
   round: { players: RoundPlayer[] } | null;
   /** host only: the authoritative game */
@@ -62,6 +64,7 @@ export const S: AppState = {
   players: [],
   lobby: null,
   you: -1,
+  mySeats: [],
   round: null,
   sim: null,
   demo: null,

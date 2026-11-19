@@ -1,7 +1,7 @@
 // Rapier physics engine setup: loading, collision groups, and the machine's static colliders.
 import type * as Rapier from '@dimforge/rapier3d-compat';
-import type { Layout } from '../shared/layout';
-import type { Quat, Vec3 } from '../shared/math';
+import { polygonCorners, sideAngle, sideNormal, sideTangent, type Layout } from '../shared/layout';
+import { yawQuat, type Quat, type Vec3 } from '../shared/math';
 
 export type { RigidBody, Collider, ImpulseJoint, World } from '@dimforge/rapier3d-compat';
 
@@ -62,25 +62,28 @@ export const createWorld = (): Rapier.World => {
 /** Friction of the floor, walls and divider. */
 const SURFACE_FRICTION = 0.8;
 /**
- * The chute shelf is a slippery tray, so the push toward the chutes (prize.ts) always beats friction
- * and nothing comes to rest on it. Uses the Min combine rule so the toys' own grippy friction doesn't win.
+ * The chute shelves are slippery trays, so the push toward the chutes (prize.ts) always beats friction
+ * and nothing comes to rest on them. Uses the Min combine rule so the toys' own grippy friction doesn't win.
  */
 const SHELF_FRICTION = 0.05;
+const TUBE_WALL = 0.025;
+const GLASS_THICKNESS = 0.5;
 
-/** Floor, chute shelf (with holes and drop tubes), acrylic divider, glass walls and ceiling. */
+/**
+ * Pit floor, a chute shelf (with a hole and drop tube) on every side, the acrylic dividers, the glass
+ * walls and the ceiling. Per-side pieces are described in that side's own frame: u runs along the side,
+ * v points outward from the centre.
+ */
 export const buildMachineColliders = (world: Rapier.World, L: Layout) => {
   const { ColliderDesc, CoefficientCombineRule } = rapier();
-  const W2 = L.width / 2, D2 = L.depth / 2, H = L.height;
+  const N = L.sides, H = L.height, slope = Math.tan(Math.PI / N);
 
-  const box = (x0: number, x1: number, y0: number, y1: number, z0: number, z1: number, slippery = false) => {
-    if (x1 - x0 < 1e-3 || y1 - y0 < 1e-3 || z1 - z0 < 1e-3) {
+  const add = (desc: Rapier.ColliderDesc | null, slippery = false) => {
+    if (!desc) {
       return;
     }
 
-    const desc = ColliderDesc.cuboid((x1 - x0) / 2, (y1 - y0) / 2, (z1 - z0) / 2)
-      .setTranslation((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
-      .setFriction(slippery ? SHELF_FRICTION : SURFACE_FRICTION)
-      .setCollisionGroups(GROUPS.static);
+    desc.setFriction(slippery ? SHELF_FRICTION : SURFACE_FRICTION).setCollisionGroups(GROUPS.static);
 
     if (slippery) {
       desc.setFrictionCombineRule(CoefficientCombineRule.Min);
@@ -89,33 +92,47 @@ export const buildMachineColliders = (world: Rapier.World, L: Layout) => {
     world.createCollider(desc);
   };
 
-  box(-W2, W2, -1, 0, -D2, L.dividerZ); // prize pit floor
+  /** A convex slab between heights y0 and y1 whose outline is `outline` (x, z) points. */
+  const slab = (outline: [number, number][], y0: number, y1: number) =>
+    ColliderDesc.convexHull(new Float32Array(outline.flatMap(([x, z]) => [x, y0, z, x, y1, z])));
 
-  // The chute shelf in front of the divider, with a hole and a drop tube for each chute.
-  let x = -W2;
+  /** Side k's (u, v) coordinates to world (x, z). */
+  const toWorld = (k: number, u: number, v: number): [number, number] => {
+    const [nx, nz] = sideNormal(N, k), [tx, tz] = sideTangent(N, k);
 
-  for (const ch of [...L.chutes].sort((a, b) => a.x - b.x)) {
-    const h = ch.size / 2, x0 = ch.x - h, x1 = ch.x + h, z0 = ch.z - h, z1 = ch.z + h, t = 0.05;
+    return [u * tx + v * nx, u * tz + v * nz];
+  };
 
-    box(x, x0, -1, 0, L.dividerZ, D2, true);
-    box(x0, x1, -1, 0, L.dividerZ, z0, true);
-    box(x0, x1, -1, 0, z1, D2, true);
-    box(x0 - t, x0, -3, 0, z0, z1, true);
-    box(x1, x1 + t, -3, 0, z0, z1, true);
-    box(x0, x1, -3, 0, z0 - t, z0, true);
-    box(x0, x1, -3, 0, z1, z1 + t, true);
-    x = x1;
+  /** A box lined up with side k: centred at (u, y, v), with half-sizes along the side, up, and outward. */
+  const sideBox = (k: number, u: number, y: number, v: number, halfU: number, halfY: number, halfV: number) => {
+    const [x, z] = toWorld(k, u, v);
+
+    return ColliderDesc.cuboid(halfU, halfY, halfV).setTranslation(x, y, z).setRotation(toRotation(yawQuat(sideAngle(N, k))));
+  };
+
+  add(slab(polygonCorners(N, L.innerApothem), -1, 0)); // prize pit floor
+
+  for (let k = 0; k < N; k++) {
+    const ai = L.innerApothem, ao = L.apothem;
+    const ch = L.chutes[k], h = ch.size / 2;
+    const v = Math.hypot(ch.x, ch.z); // chute centre, outward from the middle
+    const quad = (pts: [number, number][]) => slab(pts.map(([pu, pv]) => toWorld(k, pu, pv)), -1, 0);
+
+    // The shelf around the chute hole, in four pieces.
+    add(quad([[-ai * slope, ai], [-h, ai], [-h, ao], [-ao * slope, ao]]), true);
+    add(quad([[h, ai], [ai * slope, ai], [ao * slope, ao], [h, ao]]), true);
+    add(quad([[-h, ai], [h, ai], [h, v - h], [-h, v - h]]), true);
+    add(quad([[-h, v + h], [h, v + h], [h, ao], [-h, ao]]), true);
+
+    // The drop tube under the hole.
+    add(sideBox(k, -h - TUBE_WALL, -1.5, v, TUBE_WALL, 1.5, h), true);
+    add(sideBox(k, h + TUBE_WALL, -1.5, v, TUBE_WALL, 1.5, h), true);
+    add(sideBox(k, 0, -1.5, v - h - TUBE_WALL, h, 1.5, TUBE_WALL), true);
+    add(sideBox(k, 0, -1.5, v + h + TUBE_WALL, h, 1.5, TUBE_WALL), true);
+
+    add(sideBox(k, 0, L.dividerH / 2, ai, ai * slope, L.dividerH / 2, 0.02)); // acrylic divider
+    add(sideBox(k, 0, (H - 3) / 2, ao + GLASS_THICKNESS / 2, ao * slope + GLASS_THICKNESS, (H + 3) / 2, GLASS_THICKNESS / 2)); // glass
   }
 
-  box(x, W2, -1, 0, L.dividerZ, D2, true);
-
-  box(-W2, W2, 0, L.dividerH, L.dividerZ - 0.02, L.dividerZ + 0.02); // acrylic divider
-
-  const T = 0.5; // glass walls and ceiling
-
-  box(-W2 - T, -W2, -3, H, -D2, D2);
-  box(W2, W2 + T, -3, H, -D2, D2);
-  box(-W2, W2, -3, H, -D2 - T, -D2);
-  box(-W2, W2, -3, H, D2, D2 + T);
-  box(-W2, W2, H, H + T, -D2, D2);
+  add(slab(polygonCorners(N, L.apothem + GLASS_THICKNESS), H, H + 0.5)); // ceiling
 };

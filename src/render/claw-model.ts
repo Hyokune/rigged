@@ -24,16 +24,39 @@ export interface ClawModel {
   label: HTMLElement | null;
 }
 
-/** Builds a claw in the player's colour and adds it to `parent`. */
-export const createClawModel = (parent: THREE.Object3D, color: string, chrome: THREE.Material): ClawModel => {
-  const accent = standard(color, { emissive: color, emissiveIntensity: 0.55, roughness: 0.35, metalness: 0.2 });
+/** How see-through other players' claws are (1 = solid), so your own stands out. */
+const FADED_OPACITY = 0.4;
+
+/** A see-through copy of a material, for a faded claw. */
+const fadedCopy = (material: THREE.Material) => {
+  const copy = material.clone();
+
+  copy.transparent = true;
+  copy.opacity = FADED_OPACITY;
+  copy.depthWrite = false;
+
+  return copy;
+};
+
+/**
+ * Builds a claw in the player's colour and adds it to `parent`.
+ * `faded`: someone else's claw — drawn see-through and without a shadow, so it's less distracting.
+ */
+export const createClawModel = (parent: THREE.Object3D, color: string, sharedChrome: THREE.Material, faded = false): ClawModel => {
+  const solidAccent = standard(color, { emissive: color, emissiveIntensity: 0.55, roughness: 0.35, metalness: 0.2 });
+  const accent = faded ? fadedCopy(solidAccent) : solidAccent;
+  const chrome = faded ? fadedCopy(sharedChrome) : sharedChrome;
   const head = new THREE.Group();
+
+  if (faded) {
+    solidAccent.dispose();
+  }
 
   const mesh = (geometry: THREE.BufferGeometry, material: THREE.Material, into: THREE.Object3D, x = 0, y = 0, z = 0) => {
     const m = new THREE.Mesh(geometry, material);
 
     m.position.set(x, y, z);
-    m.castShadow = true;
+    m.castShadow = !faded;
     into.add(m);
 
     return m;

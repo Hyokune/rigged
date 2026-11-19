@@ -1,4 +1,4 @@
-// Textures painted on a <canvas>: the marquee sign, the back wall and the cabinet's front panel.
+// Textures painted on a <canvas>: the marquee sign and the cabinet's front panel.
 import * as THREE from 'three';
 
 type Painter = (ctx: CanvasRenderingContext2D, w: number, h: number) => void;
@@ -64,39 +64,9 @@ export const marqueeTexture = () =>
     ctx.shadowBlur = 0;
   });
 
-/** Purple polka-dot wall behind the prizes, sized to a W x H machine. */
-export const backWallTexture = (W: number, H: number) =>
-  canvasTexture(1024, Math.round((1024 * H) / W), (ctx, w, h) => {
-    const bg = ctx.createLinearGradient(0, 0, 0, h);
-
-    bg.addColorStop(0, '#5a189a');
-    bg.addColorStop(1, '#240046');
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, w, h);
-    ctx.globalAlpha = 0.18;
-    ctx.fillStyle = '#ffffff';
-
-    const step = 64;
-
-    for (let y = 0; y < h + step; y += step) {
-      for (let x = (y / step) % 2 ? step / 2 : 0; x < w + step; x += step) {
-        ctx.beginPath();
-        ctx.arc(x, y, 6, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-
-    ctx.globalAlpha = 0.12;
-    ctx.font = `${Math.round(h * 0.35)}px ${DISPLAY_FONT}`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('?!', w / 2, h * 0.45);
-    ctx.globalAlpha = 1;
-  });
-
-/** Striped front of the lower cabinet with the slogan and a coin slot, for a machine W wide. */
+/** Striped front panel with the slogan and a coin slot, for a panel W wide and 2.5 tall. */
 export const frontPanelTexture = (W: number) =>
-  canvasTexture(1024, Math.round((1024 * 2.5) / (W + 0.6)), (ctx, w, h) => {
+  canvasTexture(1024, Math.round((1024 * 2.5) / W), (ctx, w, h) => {
     ctx.fillStyle = '#3c096c';
     ctx.fillRect(0, 0, w, h);
     ctx.fillStyle = '#ff4fd8';
@@ -116,7 +86,7 @@ export const frontPanelTexture = (W: number) =>
     ctx.textBaseline = 'middle';
     ctx.font = `${Math.min(h * 0.16, 56)}px ${DISPLAY_FONT}`;
     ctx.fillStyle = '#ffe14d';
-    ctx.fillText('ONE BUTTON • ONE CLAW • ZERO MERCY', w / 2, h * 0.32);
+    ctx.fillText('ONE BUTTON • ONE CLAW • ZERO MERCY', w / 2, h * 0.32, w * 0.92); // shrinks to fit narrow faces
     // coin slot
     ctx.fillStyle = '#111';
     ctx.strokeStyle = '#c8ccd8';

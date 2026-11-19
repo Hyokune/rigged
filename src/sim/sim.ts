@@ -1,7 +1,7 @@
 // The authoritative game. Only the host runs a real game; every client also runs one for the
 // attract-mode demo behind the menus. Physics details live in the neighbouring files.
 import { PRIZE_TYPES, rollPoints } from '../shared/prizes';
-import { machineLayout, nearestChute, type Layout } from '../shared/layout';
+import { machineLayout, nearestChute, outwardDistance, ownChute, type Layout } from '../shared/layout';
 import { rand, round2, round3 } from '../shared/math';
 import type { ClawState, GameEvent, Phase, PlayerStats, PrizeState, Snapshot } from '../shared/protocol';
 import { GROUPS, STEP, buildMachineColliders, createWorld, type World } from './physics';
@@ -14,6 +14,8 @@ export { initPhysics } from './physics';
 const FRENZY_AT = 15; // seconds left when claws speed up
 const GRAB_REACH = 0.8;
 const SPAWN_INTERVAL = 0.45;
+/** Prizes kept in the pit per unit of floor area. */
+const PRIZES_PER_AREA = 0.5;
 /** A failed grip roll still lifts the toy, then drops it after this many seconds (random in range). */
 const FUMBLE_AFTER: [number, number] = [0.2, 0.45];
 
@@ -53,10 +55,10 @@ export class Sim {
     this.phase = demo ? 'play' : 'count';
     this.timer = countdown;
     this.stats = Array.from({ length: n }, () => ({ score: 0, grabs: 0, slips: 0, bombs: 0, prizes: 0 }));
-    this.targetCount = Math.round(14 + n * 4);
+    this.targetCount = Math.round(this.layout.pitArea * PRIZES_PER_AREA);
     this.world = createWorld();
     buildMachineColliders(this.world, this.layout);
-    this.claws = Array.from({ length: n }, (_, i) => createClaw(this.world, this.layout, i, n));
+    this.claws = Array.from({ length: n }, (_, i) => createClaw(this.world, this.layout, i));
 
     for (let i = 0; i < this.targetCount; i++) {
       this.addPrize(true);
@@ -246,7 +248,7 @@ export class Sim {
           c.y = L.topY;
 
           if (c.held >= 0) {
-            c.chute = nearestChute(L, c.x);
+            c.chute = ownChute(L, i);
             c.phase = 'carry';
           } else {
             c.phase = 'roam';
@@ -257,7 +259,7 @@ export class Sim {
         break;
 
       case 'carry': {
-        const ch = c.chute ?? nearestChute(L, c.x);
+        const ch = c.chute ?? ownChute(L, i);
         const dx = ch.x - c.x, dz = ch.z - c.z, d = Math.hypot(dx, dz);
         const speed = 2.8 * (this.frenzy ? 1.5 : 1);
 
@@ -421,8 +423,8 @@ export class Sim {
       }
 
       const t = p.body.translation();
-      const inChute = t.y < -1.2 && t.z > L.dividerZ;
-      const lost = t.y < -6 || Math.abs(t.x) > L.width || Math.abs(t.z) > L.depth;
+      const inChute = t.y < -1.2 && outwardDistance(L, t.x, t.z) > L.innerApothem;
+      const lost = t.y < -6 || Math.hypot(t.x, t.z) > L.radius + 1;
 
       if (!inChute && !lost) {
         continue;
@@ -432,18 +434,18 @@ export class Sim {
         this.release(this.claws[p.heldBy], p.heldBy);
       }
 
-      const x = t.x; // read before the body is freed
+      const x = t.x, z = t.z; // read before the body is freed
 
       this.world.removeRigidBody(p.body);
       this.prizes.splice(k, 1);
 
       if (inChute) {
-        this.scorePrize(p, x);
+        this.scorePrize(p, x, z);
       }
     }
   }
 
-  private scorePrize(p: Prize, x: number) {
+  private scorePrize(p: Prize, x: number, z: number) {
     const i = p.lastHolder;
 
     if (i < 0 || this.phase !== 'play') {
@@ -461,7 +463,7 @@ export class Sim {
       s.bombs++;
     }
 
-    const ch = nearestChute(this.layout, x);
+    const ch = nearestChute(this.layout, x, z);
 
     this.emit({ k: 'score', c: i, pts, type: p.type, x: round2(ch.x), z: round2(ch.z) });
   }

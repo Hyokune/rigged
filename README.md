@@ -58,7 +58,7 @@ The mystery box, bomb, claws and the big machine are built from three.js primiti
 - **Three.js** renders everything. **Vite** bundles the TypeScript.
 - **Rapier** (WebAssembly physics) simulates the prizes as rigid bodies that tumble and stack. A grabbed prize hangs from a ball joint at the spot the fingers caught it, with a spring that holds it roughly at the angle it was caught. Grab one off-centre and it tips over part of the way. Each claw head swings on its cable as a damped pendulum: it sways when the carriage starts and stops, leans away from an off-centre load, and twists on lopsided grabs. Bigger swings make prizes more likely to slip. The grip odds themselves are still dice rolls (it's *rigged*), and tunable in [src/shared/prizes.ts](src/shared/prizes.ts) and the constants at the top of [src/sim/grip.ts](src/sim/grip.ts) and [src/sim/sim.ts](src/sim/sim.ts).
 - **PeerJS** (WebRTC) handles networking. The host's browser runs the authoritative simulation ([src/sim/](src/sim/)) and sends snapshots to every client about 20 times per second. Clients only send "I pressed the button". PeerJS's free public broker is only used to introduce players to each other; game traffic goes directly between browsers.
-- The machine gets wider as more players join (`machineLayout` in [src/shared/layout.ts](src/shared/layout.ts)).
+- The machine is a polygon with one side per player: a square for 1–4 players, then pentagon, hexagon, heptagon and octagon. Each side has its own chute (your claw carries prizes to yours), and each player's camera starts facing their own side. See `machineLayout` in [src/shared/layout.ts](src/shared/layout.ts).
 
 ### Known limitations (prototype)
 

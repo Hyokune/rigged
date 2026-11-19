@@ -1,6 +1,6 @@
 // Prize rigid bodies: spawning, and the tray in front of the chutes that slides them in.
 import { PRIZE_TYPES, randomPrizeType } from '../shared/prizes';
-import { nearestChute, type Layout } from '../shared/layout';
+import { nearestChute, outwardDistance, type Layout } from '../shared/layout';
 import { mulQuat, pitchQuat, rand, yawQuat } from '../shared/math';
 import { GROUPS, rapier, toRotation, type Collider, type RigidBody, type World } from './physics';
 
@@ -30,15 +30,13 @@ export const spawnPrize = (world: World, L: Layout, id: number, initial: boolean
   const { RigidBodyDesc, ColliderDesc } = rapier();
   const type = randomPrizeType();
   const t = PRIZE_TYPES[type];
-  const yaw = rand(-1, 1); // mostly facing the front glass so you can see the toys' faces
+  const yaw = rand(-Math.PI, Math.PI); // players look in from every side, so any way round is fine
   const tilt = initial ? 0 : rand(-0.5, 0.5);
+  // Anywhere in the pit: a random point in the circle that fits inside the divider.
+  const angle = rand(0, Math.PI * 2), dist = Math.sqrt(Math.random()) * (L.innerApothem - t.r - 0.2);
   const body = world.createRigidBody(
     RigidBodyDesc.dynamic()
-      .setTranslation(
-        rand(-L.width / 2 + t.r + 0.2, L.width / 2 - t.r - 0.2),
-        initial ? t.r + Math.random() * 3 : L.height - 0.8,
-        rand(-L.depth / 2 + t.r + 0.2, L.dividerZ - t.r - 0.2),
-      )
+      .setTranslation(Math.sin(angle) * dist, initial ? t.r + Math.random() * 3 : L.height - 0.8, Math.cos(angle) * dist)
       .setRotation(toRotation(mulQuat(yawQuat(yaw), pitchQuat(tilt))))
       .setLinearDamping(0.15)
       .setAngularDamping(PRIZE_ANGULAR_DAMPING),
@@ -71,9 +69,16 @@ const UNSTICK_HOP = 3;
  */
 const ON_DIVIDER_RANGE = 0.2;
 
-/** On the chute shelf or a chute's rim, or balanced on top of the divider. */
-const inDropArea = (t: { x: number; y: number; z: number }, L: Layout) =>
-  t.y > -0.5 && t.y < 1.6 && (t.z > L.dividerZ || (Math.abs(t.z - L.dividerZ) < ON_DIVIDER_RANGE && t.y > L.dividerH));
+/** On a chute shelf or a chute's rim, or balanced on top of a divider. */
+const inDropArea = (t: { x: number; y: number; z: number }, L: Layout) => {
+  if (t.y < -0.5 || t.y > 1.6) {
+    return false;
+  }
+
+  const out = outwardDistance(L, t.x, t.z);
+
+  return out > L.innerApothem || (Math.abs(out - L.innerApothem) < ON_DIVIDER_RANGE && t.y > L.dividerH);
+};
 
 /** Slide prizes in the drop area into the nearest chute, so nothing gets stuck there. */
 export const nudgeTowardChute = (p: Prize, L: Layout, dt: number) => {
@@ -85,7 +90,7 @@ export const nudgeTowardChute = (p: Prize, L: Layout, dt: number) => {
     return;
   }
 
-  const ch = nearestChute(L, t.x);
+  const ch = nearestChute(L, t.x, t.z);
   const dx = ch.x - t.x, dz = ch.z - t.z, d = Math.hypot(dx, dz) || 1;
   const m = p.body.mass();
 

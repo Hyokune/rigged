@@ -41,9 +41,11 @@ export class View {
   private readonly prizes = new Map<number, PrizeModel>();
   private layout: Layout | null = null;
   private you = -1;
+  /** Which side of the machine this player looks at (their own). */
+  private side = 0;
   private roofMaterials: THREE.Material[] = [];
-  /** Ring showing where your claw would land (null when you have no claw, e.g. menus or spectating). */
-  private aim: AimMarker | null = null;
+  /** Rings showing where this device's claws would land (none in the menus or when spectating). */
+  private aims: { seat: number; marker: AimMarker }[] = [];
   private time = 0;
 
   constructor(canvas: HTMLCanvasElement, labelsEl: HTMLElement, popupsEl: HTMLElement) {
@@ -78,31 +80,40 @@ export class View {
    * Build the scene for a machine layout.
    * @param players names/colours for name tags, or null for the attract-mode demo
    * @param you index of the local player (-1 if none)
+   * @param mySeats seats played from this device (you + keyboard players): they get aim rings, and
+   *   everyone else's claw is faded so it doesn't distract from yours
    */
-  build(layout: Layout, players: RoundPlayer[] | null, you = -1) {
+  build(layout: Layout, players: RoundPlayer[] | null, you = -1, mySeats: number[] = []) {
     this.clear();
     this.layout = layout;
     this.you = you;
     this.rig.reset();
     this.roofMaterials = buildMachine(this.machine, layout, this.mats).roofMaterials;
+
+    const fadeOthers = !!players && mySeats.length > 0;
+
     this.claws = Array.from({ length: layout.n }, (_, i) => {
       const color = players ? players[i].color : COLORS[i % COLORS.length];
-      const claw = createClawModel(this.machine, color, this.mats.chrome);
+      const mine = mySeats.includes(i);
+      const claw = createClawModel(this.machine, color, this.mats.chrome, fadeOthers && !mine);
 
       if (players) {
-        claw.label = this.overlay.addLabel(players[i].name, color, i === you);
+        claw.label = this.overlay.addLabel(players[i].name, color, i === you, fadeOthers && !mine);
       }
 
       return claw;
     });
-    this.aim = players && you >= 0 && you < layout.n ? createAimMarker(players[you].color) : null;
+    this.aims = players
+      ? mySeats.map((seat) => ({ seat, marker: createAimMarker(players[seat].color) }))
+      : [];
 
-    if (this.aim) {
-      this.machine.add(this.aim.group); // disposed with the machine in clear()
+    for (const { marker } of this.aims) {
+      this.machine.add(marker.group); // disposed with the machine in clear()
     }
 
     this.aimSun(layout);
-    this.rig.frame(layout, you >= 0);
+    this.side = you >= 0 && you < layout.n ? you : 0;
+    this.rig.frame(layout, this.side, you >= 0 && you < layout.n);
   }
 
   setClaws(list: ClawState[], instant: boolean) {
@@ -192,7 +203,10 @@ export class View {
 
     this.time += dt;
     this.updateAim();
-    this.rig.followX = this.claws[this.you]?.current?.[0] ?? null;
+
+    const mine = this.claws[this.you]?.current;
+
+    this.rig.setFollowTarget(mine ? [mine[0], mine[1]] : null);
     this.rig.update(dt);
     this.fadeRoof();
     this.renderer.render(this.scene, this.rig.camera);
@@ -225,22 +239,18 @@ export class View {
     s.add(floor, this.machine, this.prizeGroup);
   }
 
-  /** Show the aim ring under your claw while it's roaming; hide it once you've pressed. */
+  /** Show an aim ring under each of this device's claws while it's roaming; hide it once that player presses. */
   private updateAim() {
-    if (!this.aim) {
-      return;
+    for (const { seat, marker } of this.aims) {
+      const claw = this.claws[seat];
+      const roaming = claw?.current && claw.target?.[4] === 0;
+
+      if (roaming) {
+        placeAimMarker(marker, claw.current![0], claw.current![1], this.prizeGroup, this.time);
+      } else {
+        marker.group.visible = false;
+      }
     }
-
-    const mine = this.claws[this.you];
-    const roaming = mine?.current && mine.target?.[4] === 0;
-
-    if (!roaming) {
-      this.aim.group.visible = false;
-
-      return;
-    }
-
-    placeAimMarker(this.aim, mine.current![0], mine.current![1], this.prizeGroup, this.time);
   }
 
   /** The more the camera looks down from above, the more see-through the machine's roof gets. */
@@ -256,12 +266,12 @@ export class View {
 
   /** Fit the sun's shadow camera around the machine. */
   private aimSun(L: Layout) {
-    const ext = Math.max(L.width, L.depth) / 2 + 3;
+    const ext = L.radius + 3;
     const sc = this.sun.shadow.camera;
 
     Object.assign(sc, { left: -ext, right: ext, top: ext, bottom: -ext, near: 1, far: 60 });
     sc.updateProjectionMatrix();
-    this.sun.position.set(L.width * 0.12, 24, 9);
+    this.sun.position.set(L.radius * 0.25, 24, 9);
   }
 
   private resize() {
@@ -272,7 +282,7 @@ export class View {
     this.rig.setAspect(w / h);
 
     if (this.layout) {
-      this.rig.frame(this.layout, this.you >= 0);
+      this.rig.frame(this.layout, this.side, this.you >= 0 && this.you < this.layout.n);
     }
   }
 

@@ -1,6 +1,6 @@
 // A claw: its carriage on the ceiling, how it roams, and how the head swings on its cable.
 import { clawPose, GRIP_POINT, HUB_ABOVE_TIP, type ClawPose } from '../shared/claw-pose';
-import type { Chute, Layout } from '../shared/layout';
+import { clampInside, sideNormal, type Chute, type Layout } from '../shared/layout';
 import { approach, clamp, rand, toWorld, type Quat, type Vec3 } from '../shared/math';
 import { GRAVITY, GROUPS, rapier, toRotation, toVector, type ImpulseJoint, type RigidBody, type World } from './physics';
 
@@ -42,12 +42,11 @@ export interface Claw {
   fumbleAt: number;
 }
 
-/** Claw i of n, spread evenly across the machine. */
-export const createClaw = (world: World, L: Layout, i: number, n: number): Claw => {
+/** Claw i, starting in the pit in front of its player's own side. */
+export const createClaw = (world: World, L: Layout, i: number): Claw => {
   const { RigidBodyDesc, ColliderDesc } = rapier();
-  const R = L.roam;
-  const x = R.minX + (R.maxX - R.minX) * ((i + 0.5) / n);
-  const z = (R.minZ + R.maxZ) / 2;
+  const [nx, nz] = sideNormal(L.sides, i);
+  const x = nx * L.roamRadius * 0.6, z = nz * L.roamRadius * 0.6;
   const pose = clawPose(L.height, x, z, L.topY, 0, 0, 0);
   const body = world.createRigidBody(RigidBodyDesc.kinematicPositionBased().setTranslation(...pose.hub));
 
@@ -65,12 +64,21 @@ export const createClaw = (world: World, L: Layout, i: number, n: number): Claw 
   return claw;
 };
 
-/** Choose somewhere nearby to wander to next. */
-export const pickTarget = (c: Claw, L: Layout) => {
-  const R = L.roam;
+/** How far a claw wanders before picking somewhere new. */
+const WANDER = 4;
 
-  c.tx = clamp(c.x + rand(-4, 4), R.minX, R.maxX);
-  c.tz = rand(R.minZ, R.maxZ);
+/** Choose somewhere nearby to wander to next (anywhere over the pit). */
+export const pickTarget = (c: Claw, L: Layout) => {
+  let tx = c.x + rand(-WANDER, WANDER), tz = c.z + rand(-WANDER, WANDER);
+  const d = Math.hypot(tx, tz);
+
+  if (d > L.roamRadius) {
+    tx *= L.roamRadius / d;
+    tz *= L.roamRadius / d;
+  }
+
+  c.tx = tx;
+  c.tz = tz;
   c.retarget = rand(1.2, 3.5);
   c.t = 0;
 };
@@ -110,8 +118,7 @@ export const roam = (c: Claw, others: Claw[], L: Layout, dt: number, boost: numb
 
   c.vx += (wx - c.vx) * k;
   c.vz += (wz - c.vz) * k;
-  c.x = clamp(c.x + c.vx * dt, -L.width / 2 + 0.6, L.width / 2 - 0.6);
-  c.z = clamp(c.z + c.vz * dt, -L.depth / 2 + 0.6, L.depth / 2 - 0.6);
+  [c.x, c.z] = clampInside(L, c.x + c.vx * dt, c.z + c.vz * dt, L.apothem - 0.6);
 };
 
 /** While dropping, sway dies away at this rate (per second), so the claw lands where you pressed. */

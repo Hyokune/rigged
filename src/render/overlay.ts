@@ -20,11 +20,11 @@ export class Overlay {
     this.popupsEl.innerHTML = '';
   }
 
-  /** A name tag in the player's colour. Your own reads "YOU". */
-  addLabel(text: string, color: string, isYou: boolean) {
+  /** A name tag in the player's colour. Your own reads "YOU"; `faded` tones down other players' tags. */
+  addLabel(text: string, color: string, isYou: boolean, faded = false) {
     const el = document.createElement('div');
 
-    el.className = 'tag' + (isYou ? ' you' : '');
+    el.className = 'tag' + (isYou ? ' you' : '') + (faded ? ' faded' : '');
     el.style.setProperty('--c', color);
     el.textContent = isYou ? 'YOU' : text;
     this.labelsEl.append(el);

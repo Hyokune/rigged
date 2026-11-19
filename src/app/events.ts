@@ -16,7 +16,9 @@ const colorOf = (seat: number, quiet: boolean) =>
 /** @param quiet attract mode: show popups, but no sounds or banners */
 export const handleEvents = (events: GameEvent[], quiet: boolean) => {
   for (const e of events) {
-    const mine = !quiet && 'c' in e && e.c === S.you;
+    const mine = !quiet && 'c' in e && S.mySeats.includes(e.c);
+    // Other players' popups are toned down so they don't distract from your own claw.
+    const faded = !quiet && !mine && S.mySeats.length > 0 ? ' faded' : '';
 
     switch (e.k) {
       case 'tick':
@@ -79,7 +81,7 @@ export const handleEvents = (events: GameEvent[], quiet: boolean) => {
 
         const p = view.clawPos(e.c);
 
-        view.popup(p.x, p.y, p.z, randomTaunt(), '#ffffff', 'slip');
+        view.popup(p.x, p.y, p.z, randomTaunt(), '#ffffff', 'slip' + faded);
         break;
       }
 
@@ -95,7 +97,7 @@ export const handleEvents = (events: GameEvent[], quiet: boolean) => {
 
         const label = `${isBomb ? '' : '+'}${e.pts} ${PRIZE_TYPES[e.type].emoji}`;
 
-        view.popup(e.x, 0.8, e.z, label, colorOf(e.c, quiet), isBomb ? 'bad' : e.pts >= 50 ? 'big' : '');
+        view.popup(e.x, 0.8, e.z, label, colorOf(e.c, quiet), (isBomb ? 'bad' : e.pts >= 50 ? 'big' : '') + faded);
         break;
       }
     }

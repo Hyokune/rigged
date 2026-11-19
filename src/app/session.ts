@@ -49,8 +49,9 @@ export const enterGame = (players: RoundPlayer[], you: number) => {
   stopDemo();
   S.round = { players };
   S.you = you;
+  S.mySeats = [you, ...(S.role === 'host' ? S.keymap.values() : [])].filter((seat) => seat >= 0 && seat < players.length);
   resetHud();
-  view.build(machineLayout(players.length), players, you);
+  view.build(machineLayout(players.length), players, you, S.mySeats);
   view.orbit = false;
 
   if (you >= 0 && you < players.length) {
@@ -66,7 +67,7 @@ export const resetToTitle = () => {
   S.hostNet?.destroy();
   S.clientNet?.destroy();
   Object.assign(S, {
-    hostNet: null, clientNet: null, role: null, sim: null, round: null, players: [], lobby: null, you: -1, code: '', keymap: new Map(),
+    hostNet: null, clientNet: null, role: null, sim: null, round: null, players: [], lobby: null, you: -1, mySeats: [], code: '', keymap: new Map(),
   });
   setBusy($<HTMLButtonElement>('btnHost'));
   setBusy($<HTMLButtonElement>('btnJoin'));
