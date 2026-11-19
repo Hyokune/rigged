@@ -29,10 +29,10 @@ export interface PrizeType {
 
 type Tier = Pick<PrizeType, 'pts' | 'grip' | 'slip' | 'weight'>;
 
-const COMMON: Tier = { pts: 10, grip: 0.85, slip: 0.1, weight: 6 };
-const UNCOMMON: Tier = { pts: 25, grip: 0.75, slip: 0.18, weight: 4.4 };
-const RARE: Tier = { pts: 50, grip: 0.5, slip: 0.32, weight: 3 };
-const JACKPOT: Tier = { pts: 100, grip: 0.35, slip: 0.45, weight: 3 };
+const COMMON: Tier = { pts: 10, grip: 0.85, slip: 0.08, weight: 6 };
+const UNCOMMON: Tier = { pts: 25, grip: 0.75, slip: 0.15, weight: 4.4 };
+const RARE: Tier = { pts: 50, grip: 0.5, slip: 0.26, weight: 3 };
+const JACKPOT: Tier = { pts: 100, grip: 0.35, slip: 0.38, weight: 3 };
 
 /** size = the model's bounding box in the asset pack (before PLUSH_SCALE). Ears and tails stick out, so shrink a little. */
 const plush = (name: string, emoji: string, model: string, size: [number, number, number], tier: Tier): PrizeType => {
@@ -57,7 +57,7 @@ export const PRIZE_TYPES: PrizeType[] = [
   plush('Crocodile', '🐊', 'Crocodile_01', [0.32, 0.42, 0.4], RARE),
   plush('Shark', '🦈', 'Shark_01', [0.44, 0.49, 0.51], RARE),
   plush('Unicorn', '🦄', 'Unicorn_01', [0.34, 0.47, 0.3], JACKPOT),
-  { name: 'Mystery Box', emoji: '🎁', model: 'gift', shape: { kind: 'box', half: [0.31, 0.28, 0.31] }, r: 0.36, pts: '?', grip: 0.7, slip: 0.22, weight: 13 },
+  { name: 'Mystery Box', emoji: '🎁', model: 'gift', shape: { kind: 'box', half: [0.31, 0.28, 0.31] }, r: 0.36, pts: '?', grip: 0.7, slip: 0.18, weight: 13 },
   { name: 'Bomb', emoji: '💣', model: 'bomb', shape: { kind: 'ball', r: 0.36 }, r: 0.36, pts: -40, grip: 0.95, slip: 0.03, weight: 9 },
 ];
 
