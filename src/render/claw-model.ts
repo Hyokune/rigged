@@ -22,7 +22,15 @@ export interface ClawModel {
   hub: THREE.Vector3;
   /** floating name tag, if this round has player names */
   label: HTMLElement | null;
+  /** drawn this much lower than the physics position (see STAGGER) */
+  stagger: number;
 }
+
+/**
+ * Claws can pass through each other, so each seat's claw is drawn a hair lower than the last. Overlapping
+ * claws then never have flat faces at exactly the same height, which would flicker. Visual only.
+ */
+const STAGGER = 0.012;
 
 /** How see-through other players' claws are (1 = solid), so your own stands out. */
 const FADED_OPACITY = 0.4;
@@ -39,10 +47,12 @@ const fadedCopy = (material: THREE.Material) => {
 };
 
 /**
- * Builds a claw in the player's colour and adds it to `parent`.
+ * Builds seat `seat`'s claw in the player's colour and adds it to `parent`.
  * `faded`: someone else's claw — drawn see-through and without a shadow, so it's less distracting.
  */
-export const createClawModel = (parent: THREE.Object3D, color: string, sharedChrome: THREE.Material, faded = false): ClawModel => {
+export const createClawModel = (
+  parent: THREE.Object3D, seat: number, color: string, sharedChrome: THREE.Material, faded = false,
+): ClawModel => {
   const solidAccent = standard(color, { emissive: color, emissiveIntensity: 0.55, roughness: 0.35, metalness: 0.2 });
   const accent = faded ? fadedCopy(solidAccent) : solidAccent;
   const chrome = faded ? fadedCopy(sharedChrome) : sharedChrome;
@@ -100,7 +110,7 @@ export const createClawModel = (parent: THREE.Object3D, color: string, sharedChr
 
   parent.add(head);
 
-  return { head, carriage, cable, prongs, current: null, target: null, hub: new THREE.Vector3(), label: null };
+  return { head, carriage, cable, prongs, current: null, target: null, hub: new THREE.Vector3(), label: null, stagger: seat * STAGGER };
 };
 
 /** Ease the claw toward its latest state (k = 0..1 smoothing factor) and pose its meshes. */
@@ -117,15 +127,17 @@ export const updateClawModel = (c: ClawModel, L: Layout, k: number) => {
   const pose = clawPose(L.height, x, z, tipY, swingX, swingZ, yaw);
 
   c.hub.set(...pose.hub);
+  c.hub.y -= c.stagger;
   c.head.position.copy(c.hub);
   c.head.quaternion.set(...pose.quat);
-  c.carriage.position.set(x, L.height - 0.24, z);
+  c.carriage.position.set(x, L.height - 0.24 - c.stagger, z);
 
   // The cable runs from the pivot down to the top of the hub, along the swing direction.
   const cableLen = Math.max(0.01, pose.len - 0.34);
 
   scratchDir.set(...pose.dir);
   c.cable.position.set(...pose.pivot).addScaledVector(scratchDir, cableLen / 2);
+  c.cable.position.y -= c.stagger;
   c.cable.quaternion.setFromUnitVectors(DOWN, scratchDir);
   c.cable.scale.y = cableLen;
 

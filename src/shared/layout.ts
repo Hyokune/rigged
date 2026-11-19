@@ -30,8 +30,8 @@ export interface Layout {
   chutes: Chute[];
   /** claw tip height when fully raised */
   topY: number;
-  /** claws wander within this distance of the centre */
-  roamRadius: number;
+  /** claws wander over the pit, up to this far from the centre toward each side (just inside the dividers) */
+  roamApothem: number;
   /** floor area of the prize pit (for scaling the number of prizes) */
   pitArea: number;
 }
@@ -46,6 +46,8 @@ const SHELF_DEPTH = CHUTE_SIZE + CHUTE_MARGIN * 2;
 /** Pit size: the square's pit is 7 x 7, and each extra side adds a bit more room. */
 const PIT_APOTHEM_SQUARE = 3.5;
 const PIT_APOTHEM_PER_SIDE = 0.375;
+/** Claws stay this far inside the dividers, so they can reach toys at the edges without clipping the acrylic. */
+const ROAM_MARGIN = 0.4;
 
 export const machineLayout = (players: number): Layout => {
   const n = Math.max(1, players | 0);
@@ -70,7 +72,7 @@ export const machineLayout = (players: number): Layout => {
     dividerH: 0.9,
     chutes,
     topY: HEIGHT - 1.7,
-    roamRadius: innerApothem - 0.9,
+    roamApothem: innerApothem - ROAM_MARGIN,
     pitArea: sides * innerApothem * innerApothem * Math.tan(half),
   };
 };
@@ -132,6 +134,19 @@ export const clampInside = (L: Layout, x: number, z: number, apothem: number): [
   }
 
   return [x, z];
+};
+
+/** A random point (x, z), evenly spread over the polygon whose sides are `apothem` from the centre. */
+export const randomPointInside = (L: Layout, apothem: number): [number, number] => {
+  const r = apothem / Math.cos(Math.PI / L.sides);
+
+  for (;;) { // pick from the surrounding square until one lands inside (well over half do)
+    const x = (Math.random() * 2 - 1) * r, z = (Math.random() * 2 - 1) * r;
+
+    if (outwardDistance(L, x, z) <= apothem) {
+      return [x, z];
+    }
+  }
 };
 
 export const nearestChute = (L: Layout, x: number, z: number): Chute =>

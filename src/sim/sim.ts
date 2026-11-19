@@ -204,7 +204,7 @@ export class Sim {
 
     switch (c.phase) {
       case 'roam':
-        roam(c, this.claws, L, dt, this.frenzy ? 1.7 : 1);
+        roam(c, L, dt, this.frenzy ? 1.7 : 1);
         break;
 
       case 'drop': {

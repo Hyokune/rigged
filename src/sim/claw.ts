@@ -1,6 +1,6 @@
 // A claw: its carriage on the ceiling, how it roams, and how the head swings on its cable.
 import { clawPose, GRIP_POINT, HUB_ABOVE_TIP, type ClawPose } from '../shared/claw-pose';
-import { clampInside, sideNormal, type Chute, type Layout } from '../shared/layout';
+import { clampInside, randomPointInside, sideNormal, type Chute, type Layout } from '../shared/layout';
 import { approach, clamp, rand, toWorld, type Quat, type Vec3 } from '../shared/math';
 import { GRAVITY, GROUPS, rapier, toRotation, toVector, type ImpulseJoint, type RigidBody, type World } from './physics';
 
@@ -46,7 +46,7 @@ export interface Claw {
 export const createClaw = (world: World, L: Layout, i: number): Claw => {
   const { RigidBodyDesc, ColliderDesc } = rapier();
   const [nx, nz] = sideNormal(L.sides, i);
-  const x = nx * L.roamRadius * 0.6, z = nz * L.roamRadius * 0.6;
+  const x = nx * L.roamApothem * 0.6, z = nz * L.roamApothem * 0.6;
   const pose = clawPose(L.height, x, z, L.topY, 0, 0, 0);
   const body = world.createRigidBody(RigidBodyDesc.kinematicPositionBased().setTranslation(...pose.hub));
 
@@ -64,17 +64,15 @@ export const createClaw = (world: World, L: Layout, i: number): Claw => {
   return claw;
 };
 
-/** How far a claw wanders before picking somewhere new. */
-const WANDER = 4;
+/** A new destination is at least this far away, so the claw visibly travels instead of dithering. */
+const MIN_HOP = 1.5;
 
-/** Choose somewhere nearby to wander to next (anywhere over the pit). */
+/** Choose a random spot anywhere over the pit (corners and edges included) to wander to next. */
 export const pickTarget = (c: Claw, L: Layout) => {
-  let tx = c.x + rand(-WANDER, WANDER), tz = c.z + rand(-WANDER, WANDER);
-  const d = Math.hypot(tx, tz);
+  let [tx, tz] = randomPointInside(L, L.roamApothem);
 
-  if (d > L.roamRadius) {
-    tx *= L.roamRadius / d;
-    tz *= L.roamRadius / d;
+  for (let tries = 0; tries < 8 && Math.hypot(tx - c.x, tz - c.z) < MIN_HOP; tries++) {
+    [tx, tz] = randomPointInside(L, L.roamApothem);
   }
 
   c.tx = tx;
@@ -83,8 +81,11 @@ export const pickTarget = (c: Claw, L: Layout) => {
   c.t = 0;
 };
 
-/** Wander around the pit (the 'roam' phase), keeping clear of the other claws. */
-export const roam = (c: Claw, others: Claw[], L: Layout, dt: number, boost: number) => {
+/**
+ * Wander around the pit (the 'roam' phase). Claws ignore each other and may pass through one another:
+ * keeping them apart used to pin claws against walls and shove them off the toy their player was aiming at.
+ */
+export const roam = (c: Claw, L: Layout, dt: number, boost: number) => {
   c.open = approach(c.open, 1, dt * 3);
   c.y = approach(c.y, L.topY, dt * 4);
   c.t += dt;
@@ -96,24 +97,8 @@ export const roam = (c: Claw, others: Claw[], L: Layout, dt: number, boost: numb
   }
 
   const speed = 2.3 * c.pace * boost;
-  let wx = d > 1e-3 ? (dx / d) * speed : 0;
-  let wz = d > 1e-3 ? (dz / d) * speed : 0;
-
-  for (const o of others) {
-    if (o === c) {
-      continue;
-    }
-
-    const ox = c.x - o.x, oz = c.z - o.z, od = Math.hypot(ox, oz);
-
-    if (od < 1.9 && od > 1e-4) {
-      const push = (1.9 - od) * 5;
-
-      wx += (ox / od) * push;
-      wz += (oz / od) * push;
-    }
-  }
-
+  const wx = d > 1e-3 ? (dx / d) * speed : 0;
+  const wz = d > 1e-3 ? (dz / d) * speed : 0;
   const k = Math.min(1, dt * 3);
 
   c.vx += (wx - c.vx) * k;

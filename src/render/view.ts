@@ -95,7 +95,7 @@ export class View {
     this.claws = Array.from({ length: layout.n }, (_, i) => {
       const color = players ? players[i].color : COLORS[i % COLORS.length];
       const mine = mySeats.includes(i);
-      const claw = createClawModel(this.machine, color, this.mats.chrome, fadeOthers && !mine);
+      const claw = createClawModel(this.machine, i, color, this.mats.chrome, fadeOthers && !mine);
 
       if (players) {
         claw.label = this.overlay.addLabel(players[i].name, color, i === you, fadeOthers && !mine);

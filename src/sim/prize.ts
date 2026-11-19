@@ -1,6 +1,6 @@
 // Prize rigid bodies: spawning, and the tray in front of the chutes that slides them in.
 import { PRIZE_TYPES, randomPrizeType } from '../shared/prizes';
-import { nearestChute, outwardDistance, type Layout } from '../shared/layout';
+import { nearestChute, outwardDistance, randomPointInside, type Layout } from '../shared/layout';
 import { mulQuat, pitchQuat, rand, yawQuat } from '../shared/math';
 import { GROUPS, rapier, toRotation, type Collider, type RigidBody, type World } from './physics';
 
@@ -32,11 +32,10 @@ export const spawnPrize = (world: World, L: Layout, id: number, initial: boolean
   const t = PRIZE_TYPES[type];
   const yaw = rand(-Math.PI, Math.PI); // players look in from every side, so any way round is fine
   const tilt = initial ? 0 : rand(-0.5, 0.5);
-  // Anywhere in the pit: a random point in the circle that fits inside the divider.
-  const angle = rand(0, Math.PI * 2), dist = Math.sqrt(Math.random()) * (L.innerApothem - t.r - 0.2);
+  const [x, z] = randomPointInside(L, L.innerApothem - t.r - 0.2); // anywhere in the pit, corners included
   const body = world.createRigidBody(
     RigidBodyDesc.dynamic()
-      .setTranslation(Math.sin(angle) * dist, initial ? t.r + Math.random() * 3 : L.height - 0.8, Math.cos(angle) * dist)
+      .setTranslation(x, initial ? t.r + Math.random() * 3 : L.height - 0.8, z)
       .setRotation(toRotation(mulQuat(yawQuat(yaw), pitchQuat(tilt))))
       .setLinearDamping(0.15)
       .setAngularDamping(PRIZE_ANGULAR_DAMPING),
