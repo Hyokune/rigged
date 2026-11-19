@@ -3,6 +3,7 @@ import { setMuted, sfx, unlockAudio } from '../audio/sfx';
 import { bindCameraControls } from './camera-controls';
 import { S, isPlaying } from './context';
 import { $, prefs, restartAnimation, toast } from './dom';
+import { cursorFor, hasPicked, isDrafting, markPicked } from './draft';
 import { joinGame } from './client';
 import { addKeyboardPlayer, backToLobby, hostGame, removePlayer, startRound } from './host';
 import { resetToTitle } from './session';
@@ -19,6 +20,12 @@ const pressMine = () => {
 
   restartAnimation(btn, 'hit');
 
+  if (isDrafting()) {
+    pickMine();
+
+    return;
+  }
+
   if (S.role === 'host') {
     if (S.sim?.press(S.you)) {
       sfx.press();
@@ -30,6 +37,26 @@ const pressMine = () => {
       sfx.press();
     }
   }
+};
+
+/** During an upgrade pick: lock in the card that's lit on this screen. */
+const pickMine = () => {
+  const pick = cursorFor(S.you);
+
+  if (pick < 0 || hasPicked(S.you)) {
+    return;
+  }
+
+  if (S.role === 'host') {
+    if (!S.sim?.press(S.you, pick)) {
+      return;
+    }
+  } else {
+    S.clientNet?.send({ t: 'press', pick });
+  }
+
+  markPicked(S.you);
+  sfx.press();
 };
 
 const onKeyDown = (e: KeyboardEvent) => {
@@ -76,8 +103,14 @@ const onKeyDown = (e: KeyboardEvent) => {
   if (S.role === 'host' && seat !== undefined) {
     e.preventDefault();
 
-    if (S.sim?.press(seat)) {
+    const pick = isDrafting() ? cursorFor(seat) : undefined;
+
+    if (S.sim?.press(seat, pick)) {
       sfx.press();
+
+      if (pick !== undefined) {
+        markPicked(seat);
+      }
     }
   }
 };

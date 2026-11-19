@@ -2,8 +2,10 @@
 import { MAX_PLAYERS } from '../shared/constants';
 import { PRIZE_TYPES } from '../shared/prizes';
 import type { RoundResult, Snapshot } from '../shared/protocol';
+import { UPGRADES, upgradeSummary } from '../shared/upgrades';
 import { S, isPlaying, publicRoster, type Screen } from './context';
 import { $, escapeHtml, plural } from './dom';
+import { hasPicked, syncDraft } from './draft';
 
 export const show = (screen: Screen) => {
   S.screen = screen;
@@ -20,6 +22,10 @@ export const show = (screen: Screen) => {
   $('spectate').classList.toggle('hidden', !(screen === 'game' && !playing));
   $('lookHint').classList.toggle('hidden', screen !== 'game');
   document.body.classList.toggle('frenzy', false);
+
+  if (screen !== 'game') {
+    syncDraft(undefined);
+  }
 };
 
 // ---------- lobby ----------
@@ -53,12 +59,37 @@ export const renderLobby = () => {
 
 // ---------- in-game HUD ----------
 
-/** Last scoreboard drawn, so it's only rebuilt when a score or the order changes. */
+/** Last scoreboard and upgrade list drawn, so they're only rebuilt when something changes. */
 let scoreboardKey = '';
+let upgradesKey = '';
 
 export const resetHud = () => {
   scoreboardKey = '';
+  upgradesKey = '';
   $('timer').textContent = '';
+  $('myUps').innerHTML = '';
+  syncDraft(undefined);
+};
+
+/** Your upgrades, under the timer. */
+const renderMyUpgrades = (owned: number[]) => {
+  const key = owned.join(',');
+
+  if (key === upgradesKey) {
+    return;
+  }
+
+  upgradesKey = key;
+  $('myUps').innerHTML = [...new Set(owned)]
+    .map((u) => {
+      const n = owned.filter((x) => x === u).length;
+
+      const tip = `${UPGRADES[u].name}: ${UPGRADES[u].desc}`;
+
+      // focusable so a tap shows the tooltip on phones (no hover there)
+      return `<span tabindex="0" data-tip="${escapeHtml(tip)}">${UPGRADES[u].emoji}${n > 1 ? `<b>${n}</b>` : ''}</span>`;
+    })
+    .join('');
 };
 
 export const updateHud = (snap: Snapshot) => {
@@ -88,8 +119,13 @@ export const updateHud = (snap: Snapshot) => {
   }
 
   const mine = snap.c[S.you];
+  const drafting = snap.ph === 'draft';
+  const busy = drafting ? hasPicked(S.you) : !mine || mine[4] === 1 || snap.ph !== 'play';
 
-  $('grab').classList.toggle('busy', !mine || mine[4] === 1 || snap.ph !== 'play');
+  $('grab').classList.toggle('busy', busy);
+  $('grab').classList.toggle('pick', drafting);
+  $('grab').querySelector('span')!.textContent = drafting ? 'PICK' : 'GRAB';
+  renderMyUpgrades(snap.up?.[S.you] ?? []);
   document.body.classList.toggle('frenzy', !!snap.fz);
 };
 
@@ -102,7 +138,8 @@ export const showResults = (results: RoundResult[]) => {
 
   const order = results.map((r, i) => ({ ...r, i })).sort((a, b) => b.score - a.score);
   const rows = order.map((r, rank) => {
-    const stats = `${plural(r.prizes, 'prize')} · ${plural(r.slips, 'slip')}${r.bombs ? ` · ${r.bombs} 💣` : ''}`;
+    const ups = r.ups?.length ? ` · ${upgradeSummary(r.ups)}` : '';
+    const stats = `${plural(r.prizes, 'prize')} · ${plural(r.slips, 'slip')}${r.bombs ? ` · ${r.bombs} 💣` : ''}${ups}`;
 
     return `<li style="--c:${r.color}" class="${r.i === S.you ? 'me' : ''}"><span class="rank">${MEDALS[rank] || rank + 1}</span><span class="dot"></span><span class="nm">${escapeHtml(r.name)}<small>${stats}</small></span><b>${r.score}</b></li>`;
   });

@@ -78,6 +78,13 @@ export const randomPrizeType = (): number => {
   return 0;
 };
 
-/** Points for a prize that just went down a chute (mystery boxes roll their value). */
-export const rollPoints = (t: PrizeType): number =>
-  t.pts === '?' ? MYSTERY_POINTS[Math.floor(Math.random() * MYSTERY_POINTS.length)] : t.pts;
+/** Points for a prize that just went down a chute. `lucky` (the Lucky Box upgrade): mystery boxes only roll from the top three values. */
+export const rollPoints = (t: PrizeType, lucky = false): number => {
+  if (t.pts !== '?') {
+    return t.pts;
+  }
+
+  const table = lucky ? MYSTERY_POINTS.slice(-3) : MYSTERY_POINTS;
+
+  return table[Math.floor(Math.random() * table.length)];
+};

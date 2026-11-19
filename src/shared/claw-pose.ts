@@ -25,12 +25,13 @@ export interface ClawPose {
  * @param swingX swing angle that displaces the claw toward +x (radians)
  * @param swingZ swing angle that displaces the claw toward +z (radians)
  * @param yaw    twist around the cable (radians)
+ * @param scale  size of the claw head (Mega Claw is bigger, so its hub sits further above its tips)
  */
 export const clawPose = (
-  ceiling: number, cx: number, cz: number, tipY: number, swingX: number, swingZ: number, yaw: number,
+  ceiling: number, cx: number, cz: number, tipY: number, swingX: number, swingZ: number, yaw: number, scale = 1,
 ): ClawPose => {
   const pivot: Vec3 = [cx, ceiling - PIVOT_BELOW_CEILING, cz];
-  const len = Math.max(0.05, pivot[1] - (tipY + HUB_ABOVE_TIP));
+  const len = Math.max(0.05, pivot[1] - (tipY + HUB_ABOVE_TIP * scale));
   const tx = Math.tan(swingX), tz = Math.tan(swingZ);
   const inv = 1 / Math.hypot(tx, 1, tz);
   const dir: Vec3 = [tx * inv, -inv, tz * inv];

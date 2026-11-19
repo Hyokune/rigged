@@ -22,6 +22,7 @@ The claws speed up during the last 15 seconds (**FRENZY**). A prize that slips a
 3. The host can also **add players on the same keyboard**, each with their own key. This works offline, as a single-screen fallback.
 4. Host picks a round length and hits **Start**. Press <kbd>Space</kbd>, <kbd>Enter</kbd> or the **GRAB** button to drop your claw.
 5. Drag on the machine to look around (tilt up for a top-down view: the roof fades out). Double-click / double-tap to reset the view.
+6. Every 15 seconds the game pauses until everyone has picked an **upgrade** from three cards. A cursor spins over them, and your button stops it on whichever one is lit. Most cards boost your own claw; rare **sabotage** cards rig everyone else's, and once in a blue moon the legendary **Mega Claw** turns up: a giant claw that grabs up to three prizes at once. Hover over a card, or over your upgrades under the timer, to see what it does.
 
 Players who join mid-round watch the current round and play from the next one.
 

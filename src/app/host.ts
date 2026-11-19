@@ -70,7 +70,7 @@ const onPlayerMessage = (conn: DataConnection, msg: ClientMessage) => {
     const seat = S.players.findIndex((p) => p.conn === conn);
 
     if (S.screen === 'game' && S.sim && seat >= 0 && seat < S.sim.n) {
-      S.sim.press(seat);
+      S.sim.press(seat, typeof msg.pick === 'number' ? msg.pick : undefined);
     }
   }
 };
@@ -176,6 +176,15 @@ const tick = () => {
   }
 
   const now = performance.now();
+
+  if (sim.phase === 'draft') {
+    // A pick waits for everyone: pick for players who have left so they can't hold the game up.
+    S.players.forEach((p, seat) => {
+      if (!p.connected && seat < sim.n) {
+        sim.press(seat);
+      }
+    });
+  }
 
   sim.step(Math.min(1, (now - S.lastTick) / 1000));
   S.lastTick = now;

@@ -3,8 +3,9 @@ import { sfx } from '../audio/sfx';
 import { COLORS } from '../shared/constants';
 import { PRIZE_TYPES } from '../shared/prizes';
 import type { GameEvent } from '../shared/protocol';
+import { UPGRADES } from '../shared/upgrades';
 import { S, view } from './context';
-import { banner } from './dom';
+import { banner, toast } from './dom';
 
 const SLIP_TAUNTS = ['RIGGED!', 'SLIPPED!', 'NOPE!', 'SO CLOSE…'];
 
@@ -65,10 +66,12 @@ export const handleEvents = (events: GameEvent[], quiet: boolean) => {
           (e.ok ? sfx.grab : sfx.miss)(mine);
         }
 
-        if (!e.ok && mine) {
-          const p = view.clawPos(e.c);
+        const p = view.clawPos(e.c);
 
+        if (!e.ok && mine) {
           view.popup(p.x, p.y, p.z, 'MISS', '#ffffff', 'small');
+        } else if (e.ok && e.n && e.n > 1) {
+          view.popup(p.x, p.y, p.z, `MEGA GRAB ×${e.n}!`, colorOf(e.c, quiet), 'big' + faded);
         }
 
         break;
@@ -82,6 +85,34 @@ export const handleEvents = (events: GameEvent[], quiet: boolean) => {
         const p = view.clawPos(e.c);
 
         view.popup(p.x, p.y, p.z, randomTaunt(), '#ffffff', 'slip' + faded);
+        break;
+      }
+
+      case 'draft':
+        if (!quiet) {
+          sfx.draft();
+        }
+
+        break;
+
+      case 'pick': {
+        if (quiet) {
+          break;
+        }
+
+        const up = UPGRADES[e.u];
+
+        sfx.pick(mine);
+
+        const who = mine && S.mySeats.length === 1 ? 'You' : S.round?.players[e.c]?.name ?? 'Someone';
+
+        if (up.legendary) {
+          sfx.legendary();
+          toast(`${up.emoji} LEGENDARY! ${who} got the ${up.name.toUpperCase()}!`);
+        } else if (up.sabotage) {
+          toast(`${up.emoji} ${who} played ${up.name.toUpperCase()} on everyone else!`);
+        }
+
         break;
       }
 

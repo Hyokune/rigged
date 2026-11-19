@@ -40,6 +40,22 @@ export interface Claw {
   gripRel: Quat;
   /** sim time at which a fumbled grab lets go (0 = not fumbling); see Sim.tryGrab */
   fumbleAt: number;
+  /** size of the head (Mega Claw is bigger) */
+  scale: number;
+  /** more prizes held besides `held` (Mega Claw's multi-grab) */
+  extras: ExtraGrip[];
+}
+
+/** A second or third prize in a multi-grab, hanging around the main one. */
+export interface ExtraGrip {
+  id: number;
+  joint: ImpulseJoint;
+  /** its joint's anchor on the claw slides from `from` (where it was caught) to `to` (snug under the claw) */
+  from: Vec3;
+  to: Vec3;
+  t: number;
+  /** its orientation relative to the claw when caught */
+  rel: Quat;
 }
 
 /** Claw i, starting in the pit in front of its player's own side. */
@@ -57,12 +73,22 @@ export const createClaw = (world: World, L: Layout, i: number): Claw => {
     tx: x, tz: z, retarget: 0, chute: null, pace: rand(0.85, 1.15),
     swingX: 0, swingZ: 0, wX: 0, wZ: 0, yaw: 0, wYaw: 0,
     body, pose, joint: null, anchorFrom: [...GRIP_POINT], anchorT: 1, gripRel: [0, 0, 0, 1], fumbleAt: 0,
+    scale: 1, extras: [],
   };
 
   pickTarget(claw, L);
 
   return claw;
 };
+
+/** How far the top of the claw head (its cap) sits above the hub centre, at normal size. */
+const CAP_ABOVE_HUB = 0.34;
+
+/** Fingertip height when fully raised. A bigger claw hangs lower, so its head stays clear of the carriage. */
+export const clawTop = (c: Claw, L: Layout) => L.topY - (HUB_ABOVE_TIP + CAP_ABOVE_HUB) * (c.scale - 1);
+
+/** Where a held prize hangs from, in the hub's frame (scales with the claw). */
+export const gripPoint = (c: Claw): Vec3 => [GRIP_POINT[0] * c.scale, GRIP_POINT[1] * c.scale, GRIP_POINT[2] * c.scale];
 
 /** A new destination is at least this far away, so the claw visibly travels instead of dithering. */
 const MIN_HOP = 1.5;
@@ -87,7 +113,7 @@ export const pickTarget = (c: Claw, L: Layout) => {
  */
 export const roam = (c: Claw, L: Layout, dt: number, boost: number) => {
   c.open = approach(c.open, 1, dt * 3);
-  c.y = approach(c.y, L.topY, dt * 4);
+  c.y = approach(c.y, clawTop(c, L), dt * 4);
   c.t += dt;
 
   const dx = c.tx - c.x, dz = c.tz - c.z, d = Math.hypot(dx, dz);
@@ -113,8 +139,9 @@ const STEADY_RATE = 10;
  * The claw head is a damped pendulum hanging from the carriage. Carriage acceleration makes it sway,
  * and a prize hanging off-centre (heldAt = its x/z) pulls it over until the combined weight sits under the cable.
  * `steady` (dropping / closing): the claw steadies itself and comes straight down instead.
+ * `sway` scales how hard the carriage's starts and stops kick it (upgrades).
  */
-export const updateSwing = (c: Claw, heldAt: { x: number; z: number } | null, dt: number, steady: boolean) => {
+export const updateSwing = (c: Claw, heldAt: { x: number; z: number } | null, dt: number, steady: boolean, sway = 1) => {
   const ax = (c.vx - c.prevVx) / dt, az = (c.vz - c.prevVz) / dt;
 
   c.prevVx = c.vx;
@@ -144,7 +171,7 @@ export const updateSwing = (c: Claw, heldAt: { x: number; z: number } | null, dt
   }
 
   const k = GRAVITY / len;
-  const inertia = 0.22; // how strongly carriage starts/stops kick the claw (1 = a free pendulum)
+  const inertia = 0.22 * sway; // how strongly carriage starts/stops kick the claw (1 = a free pendulum)
 
   c.wX += (-k * Math.sin(c.swingX - eqX) - inertia * (ax / len) * Math.cos(c.swingX) - 2.2 * c.wX) * dt;
   c.wZ += (-k * Math.sin(c.swingZ - eqZ) - inertia * (az / len) * Math.cos(c.swingZ) - 2.2 * c.wZ) * dt;
@@ -154,10 +181,10 @@ export const updateSwing = (c: Claw, heldAt: { x: number; z: number } | null, dt
 
 /** Recompute where the head hangs and move its physics body there for the next physics step. */
 export const updatePose = (c: Claw, L: Layout) => {
-  c.pose = clawPose(L.height, c.x, c.z, c.y, c.swingX, c.swingZ, c.yaw);
+  c.pose = clawPose(L.height, c.x, c.z, c.y, c.swingX, c.swingZ, c.yaw, c.scale);
   c.body.setNextKinematicTranslation(toVector(c.pose.hub));
   c.body.setNextKinematicRotation(toRotation(c.pose.quat));
 };
 
 /** World position of the fingertips (follows the swing). */
-export const clawTip = (c: Claw): Vec3 => toWorld(c.pose.hub, c.pose.quat, [0, -HUB_ABOVE_TIP, 0]);
+export const clawTip = (c: Claw): Vec3 => toWorld(c.pose.hub, c.pose.quat, [0, -HUB_ABOVE_TIP * c.scale, 0]);

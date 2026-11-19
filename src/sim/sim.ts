@@ -1,12 +1,14 @@
 // The authoritative game. Only the host runs a real game; every client also runs one for the
 // attract-mode demo behind the menus. Physics details live in the neighbouring files.
 import { PRIZE_TYPES, rollPoints } from '../shared/prizes';
+import { computeMods, DRAFT_EVERY, type Mods } from '../shared/upgrades';
 import { machineLayout, nearestChute, outwardDistance, ownChute, type Layout } from '../shared/layout';
 import { rand, round2, round3 } from '../shared/math';
 import type { ClawState, GameEvent, Phase, PlayerStats, PrizeState, Snapshot } from '../shared/protocol';
 import { GROUPS, STEP, buildMachineColliders, createWorld, type World } from './physics';
-import { clawTip, createClaw, pickTarget, roam, updatePose, updateSwing, type Claw } from './claw';
-import { attach, detach, gripSpring, slideGripAnchor } from './grip';
+import { clawTip, clawTop, createClaw, pickTarget, roam, updatePose, updateSwing, type Claw } from './claw';
+import { createDraft, draftState, lockPick, type Draft } from './draft';
+import { attach, attachExtra, detach, detachExtra, gripSpring, slideGripAnchor } from './grip';
 import { nudgeTowardChute, spawnPrize, type Prize } from './prize';
 
 export { initPhysics } from './physics';
@@ -18,6 +20,10 @@ const SPAWN_INTERVAL = 0.45;
 const PRIZES_PER_AREA = 0.5;
 /** A failed grip roll still lifts the toy, then drops it after this many seconds (random in range). */
 const FUMBLE_AFTER: [number, number] = [0.2, 0.45];
+/** No upgrade picks this close to frenzy: the end of the round is all action. */
+const NO_DRAFT_AFTER = FRENZY_AT + 2;
+/** The best grip chance upgrades can reach. */
+const MAX_GRIP = 0.97;
 
 export interface SimOptions {
   duration?: number;
@@ -46,6 +52,11 @@ export class Sim {
   private nextId = 1;
   private spawnClock = 0;
   private readonly targetCount: number;
+  /** each player's upgrade effects; recomputed whenever anyone takes one */
+  private mods: Mods[];
+  private draft: Draft | null = null;
+  /** seconds into the round when the next upgrade pick happens */
+  private nextDraftAt = DRAFT_EVERY;
 
   constructor(n: number, { duration = 90, countdown = 3, demo = false }: SimOptions = {}) {
     this.n = n;
@@ -54,7 +65,8 @@ export class Sim {
     this.duration = duration;
     this.phase = demo ? 'play' : 'count';
     this.timer = countdown;
-    this.stats = Array.from({ length: n }, () => ({ score: 0, grabs: 0, slips: 0, bombs: 0, prizes: 0 }));
+    this.stats = Array.from({ length: n }, () => ({ score: 0, grabs: 0, slips: 0, bombs: 0, prizes: 0, ups: [] }));
+    this.mods = this.stats.map((_, i) => computeMods([], i));
     this.targetCount = Math.round(this.layout.pitArea * PRIZES_PER_AREA);
     this.world = createWorld();
     buildMachineColliders(this.world, this.layout);
@@ -74,8 +86,15 @@ export class Sim {
     this.world.free();
   }
 
-  /** Player i pressed their button. Returns true if the claw started dropping. */
-  press(i: number): boolean {
+  /**
+   * Player i pressed their button. Returns true if it did something: the claw started dropping or,
+   * during an upgrade pick, a card was locked in (`pick` = the card their screen showed lit).
+   */
+  press(i: number, pick?: number): boolean {
+    if (this.phase === 'draft') {
+      return this.takeUpgrade(i, pick);
+    }
+
     const c = this.claws[i];
 
     if (!c || this.phase !== 'play' || c.phase !== 'roam') {
@@ -107,7 +126,7 @@ export class Sim {
       fz: this.frenzy ? 1 : 0,
       c: this.claws.map((c): ClawState => [
         round2(c.x), round2(c.z), round2(c.y), round2(c.open), c.phase === 'roam' ? 0 : 1,
-        round3(c.swingX), round3(c.swingZ), round3(c.yaw),
+        round3(c.swingX), round3(c.swingZ), round3(c.yaw), c.scale,
       ]),
       p: this.prizes.map((p): PrizeState => {
         const t = p.body.translation(), q = p.body.rotation();
@@ -115,6 +134,8 @@ export class Sim {
         return [p.id, p.type, round2(t.x), round2(t.y), round2(t.z), round3(q.x), round3(q.y), round3(q.z), round3(q.w)];
       }),
       sc: this.stats.map((s) => s.score),
+      up: this.stats.map((s) => s.ups),
+      dr: this.draft ? draftState(this.draft) : undefined,
     };
   }
 
@@ -131,6 +152,12 @@ export class Sim {
   }
 
   private fixedStep(dt: number) {
+    if (this.phase === 'draft') {
+      this.updateDraft(dt); // everything else (physics, timer, claws) is frozen meanwhile
+
+      return;
+    }
+
     this.clock += dt;
 
     if (!this.demo) {
@@ -141,13 +168,22 @@ export class Sim {
       this.updateClaw(c, i, dt);
 
       const held = this.prizeById(c.held);
+      const steady = c.phase === 'drop' || c.phase === 'close';
 
-      updateSwing(c, held ? held.body.translation() : null, dt, c.phase === 'drop' || c.phase === 'close');
+      updateSwing(c, held ? held.body.translation() : null, dt, steady, this.mods[i].sway);
       updatePose(c, this.layout);
       slideGripAnchor(c, dt);
 
       if (c.joint && held) {
         gripSpring(c, held, dt);
+      }
+
+      for (const e of c.extras) {
+        const p = this.prizeById(e.id);
+
+        if (p) {
+          gripSpring(c, p, dt, e.rel);
+        }
       }
     });
 
@@ -189,6 +225,16 @@ export class Sim {
         this.emit({ k: 'frenzy' });
       }
 
+      if (this.duration - this.timer >= this.nextDraftAt) {
+        this.nextDraftAt += DRAFT_EVERY;
+
+        if (this.timer > NO_DRAFT_AFTER) {
+          this.startDraft();
+
+          return;
+        }
+      }
+
       if (this.timer <= 0) {
         this.timer = 0;
         this.phase = 'over';
@@ -198,21 +244,75 @@ export class Sim {
     }
   }
 
+  // ---------- upgrade picks ----------
+
+  private startDraft() {
+    const draft = createDraft(this.stats.map((s) => s.ups));
+
+    if (draft.offers.every((o) => !o.length)) {
+      return; // everyone has every upgrade maxed out
+    }
+
+    this.phase = 'draft';
+    this.draft = draft;
+    this.emit({ k: 'draft' });
+  }
+
+  private takeUpgrade(i: number, pick?: number) {
+    const u = this.draft ? lockPick(this.draft, i, pick) : -1;
+
+    if (u < 0) {
+      return false;
+    }
+
+    this.stats[i].ups.push(u);
+    this.mods = this.stats.map((_, j) => computeMods(this.stats.map((s) => s.ups), j));
+    this.claws.forEach((c, j) => {
+      c.scale = this.mods[j].scale;
+      c.y = Math.min(c.y, clawTop(c, this.layout)); // a claw that just grew mustn't poke into the carriage
+    });
+    this.emit({ k: 'pick', c: i, u });
+
+    return true;
+  }
+
+  private updateDraft(dt: number) {
+    const d = this.draft;
+
+    if (!d) {
+      return;
+    }
+
+    d.t += dt;
+
+    if (d.t < d.endAt) {
+      return;
+    }
+
+    this.draft = null;
+    this.phase = 'play';
+    this.emit({ k: 'go' });
+  }
+
+  // ---------- claws ----------
+
   /** The claw's state machine: roam → drop → close → lift → carry → release → roam. */
   private updateClaw(c: Claw, i: number, dt: number) {
     const L = this.layout;
+    const m = this.mods[i];
 
     switch (c.phase) {
       case 'roam':
-        roam(c, L, dt, this.frenzy ? 1.7 : 1);
+        roam(c, L, dt, (this.frenzy ? 1.7 : 1) * m.roam);
         break;
 
       case 'drop': {
         c.vx = c.vz = 0; // the carriage stops dead, so the claw sways a little on the way down
 
-        const stopAt = this.contactHeight(c);
+        // Never upward: a prize above the fingertips (say, one dropping in from the top) mustn't yank the claw up.
+        const stopAt = Math.min(this.contactHeight(c), c.y);
 
-        c.y -= 5.5 * dt;
+        c.y -= 5.5 * m.winch * dt;
 
         if (c.y <= stopAt) {
           c.y = stopAt;
@@ -236,7 +336,7 @@ export class Sim {
         break;
 
       case 'lift':
-        c.y += (c.held >= 0 ? 2.6 : 3.6) * dt;
+        c.y += (c.held >= 0 ? 2.6 : 3.6) * m.winch * dt;
 
         if (c.fumbleAt && this.clock >= c.fumbleAt) {
           this.fumble(c, i);
@@ -244,8 +344,8 @@ export class Sim {
           this.maybeSlip(c, i, dt, 0.5);
         }
 
-        if (c.y >= L.topY) {
-          c.y = L.topY;
+        if (c.y >= clawTop(c, L)) {
+          c.y = clawTop(c, L);
 
           if (c.held >= 0) {
             c.chute = ownChute(L, i);
@@ -261,7 +361,7 @@ export class Sim {
       case 'carry': {
         const ch = c.chute ?? ownChute(L, i);
         const dx = ch.x - c.x, dz = ch.z - c.z, d = Math.hypot(dx, dz);
-        const speed = 2.8 * (this.frenzy ? 1.5 : 1);
+        const speed = 2.8 * (this.frenzy ? 1.5 : 1) * m.winch;
 
         if (d <= speed * dt) {
           c.x = ch.x;
@@ -307,7 +407,7 @@ export class Sim {
       const t = p.body.translation();
       const hd = Math.hypot(t.x - tx, t.z - tz);
 
-      if (hd < PRIZE_TYPES[p.type].r * 0.8 + 0.25) {
+      if (hd < PRIZE_TYPES[p.type].r * 0.8 + 0.25 * c.scale) {
         h = Math.max(h, t.y - 0.1 + hd * 0.3);
       }
     }
@@ -315,10 +415,15 @@ export class Sim {
     return h;
   }
 
-  /** The fingers have closed: find the nearest prize and roll the (rigged) dice on holding it. */
+  /**
+   * The fingers have closed: find the nearest prize and roll the (rigged) dice on holding it.
+   * Mega Claw: if it holds, the next nearest prizes in reach come along too.
+   */
   private tryGrab(c: Claw, i: number) {
+    const m = this.mods[i];
+    const reach = GRAB_REACH * m.reach;
     const tip = clawTip(c);
-    let best: Prize | null = null, bestScore = Infinity, bestOffset = 0;
+    const inReach: { p: Prize; score: number; offset: number }[] = [];
 
     for (const p of this.prizes) {
       if (p.heldBy >= 0) {
@@ -328,7 +433,7 @@ export class Sim {
       const t = p.body.translation();
       const offset = Math.hypot(t.x - tip[0], t.z - tip[2]);
 
-      if (offset > GRAB_REACH) {
+      if (offset > reach) {
         continue;
       }
 
@@ -338,22 +443,20 @@ export class Sim {
         continue;
       }
 
-      const score = offset + dy * 0.6;
-
-      if (score < bestScore) {
-        bestScore = score;
-        best = p;
-        bestOffset = offset;
-      }
+      inReach.push({ p, score: offset + dy * 0.6, offset });
     }
 
-    if (!best) {
+    inReach.sort((a, b) => a.score - b.score);
+
+    if (!inReach.length) {
       this.emit({ k: 'grab', c: i, ok: 0 });
 
       return;
     }
 
-    const chance = PRIZE_TYPES[best.type].grip * (1 - (0.5 * bestOffset) / GRAB_REACH); // off-centre grabs are weaker
+    const { p: best, offset } = inReach[0];
+    const grip = Math.min(MAX_GRIP, PRIZE_TYPES[best.type].grip + m.grip);
+    const chance = grip * (1 - (0.5 * offset) / reach); // off-centre grabs are weaker
 
     attach(this.world, c, i, best);
 
@@ -362,7 +465,13 @@ export class Sim {
         this.stats[i].grabs++;
       }
 
-      this.emit({ k: 'grab', c: i, ok: 1, type: best.type });
+      for (const { p } of inReach.slice(1, m.grabs)) {
+        attachExtra(this.world, c, i, p);
+      }
+
+      const n = 1 + c.extras.length;
+
+      this.emit({ k: 'grab', c: i, ok: 1, type: best.type, ...(n > 1 ? { n } : {}) });
     } else {
       // The dice said no, but show it: the claw lifts the toy a little, then it slides out of the fingers.
       c.fumbleAt = this.clock + rand(FUMBLE_AFTER[0], FUMBLE_AFTER[1]);
@@ -386,7 +495,7 @@ export class Sim {
 
     const sway = 1 + 2.5 * (Math.abs(c.swingX) + Math.abs(c.swingZ));
 
-    if (Math.random() >= PRIZE_TYPES[p.type].slip * phaseFactor * sway * dt) {
+    if (Math.random() >= PRIZE_TYPES[p.type].slip * this.mods[i].slip * phaseFactor * sway * dt) {
       return;
     }
 
@@ -405,9 +514,16 @@ export class Sim {
     }
   }
 
+  /** Let go of everything claw i is holding. */
   private release(c: Claw, i: number) {
     c.fumbleAt = 0;
     detach(this.world, c, this.prizeById(c.held), i, this.clock);
+
+    for (const e of c.extras) {
+      detachExtra(this.world, e, this.prizeById(e.id), i, this.clock);
+    }
+
+    c.extras = [];
   }
 
   /** Score prizes that dropped down a chute; clean up any that escaped the machine. */
@@ -453,7 +569,9 @@ export class Sim {
     }
 
     const t = PRIZE_TYPES[p.type];
-    const pts = rollPoints(t);
+    const m = this.mods[i];
+    const base = rollPoints(t, m.lucky);
+    const pts = Math.round(base * (base > 0 ? m.points : m.bomb));
     const s = this.stats[i];
 
     s.score += pts;

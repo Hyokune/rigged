@@ -123,17 +123,18 @@ export const updateClawModel = (c: ClawModel, L: Layout, k: number) => {
     c.current[j] += (c.target[j] - c.current[j]) * k;
   }
 
-  const [x, z, tipY, open, , swingX, swingZ, yaw] = c.current;
-  const pose = clawPose(L.height, x, z, tipY, swingX, swingZ, yaw);
+  const [x, z, tipY, open, , swingX, swingZ, yaw, scale = 1] = c.current;
+  const pose = clawPose(L.height, x, z, tipY, swingX, swingZ, yaw, scale);
 
   c.hub.set(...pose.hub);
   c.hub.y -= c.stagger;
   c.head.position.copy(c.hub);
   c.head.quaternion.set(...pose.quat);
+  c.head.scale.setScalar(scale); // grows smoothly when its player picks Mega Claw
   c.carriage.position.set(x, L.height - 0.24 - c.stagger, z);
 
   // The cable runs from the pivot down to the top of the hub, along the swing direction.
-  const cableLen = Math.max(0.01, pose.len - 0.34);
+  const cableLen = Math.max(0.01, pose.len - 0.34 * scale);
 
   scratchDir.set(...pose.dir);
   c.cable.position.set(...pose.pivot).addScaledVector(scratchDir, cableLen / 2);

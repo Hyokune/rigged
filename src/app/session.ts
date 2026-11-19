@@ -5,6 +5,7 @@ import type { RoundPlayer, Snapshot } from '../shared/protocol';
 import { Sim } from '../sim/sim';
 import { S, view } from './context';
 import { $, setBusy } from './dom';
+import { syncDraft, tickDraft } from './draft';
 import { handleEvents } from './events';
 import { resetHud, show, updateHud } from './screens';
 
@@ -39,6 +40,7 @@ export const applySnapshot = (snap: Snapshot, instant: boolean) => {
   view.setPrizes(snap.p, instant);
 
   if (S.screen === 'game') {
+    syncDraft(snap.dr);
     updateHud(snap);
   }
 };
@@ -96,6 +98,7 @@ export const startRenderLoop = () => {
       handleEvents(S.demo.events.splice(0), true);
     }
 
+    tickDraft(dt);
     view.update(dt);
     requestAnimationFrame(frame);
   };

@@ -113,4 +113,12 @@ export const sfx = {
   frenzy: () => [0, 3, 6, 9, 12].forEach((s, k) => tone({ f: semis(440, s), d: 0.1, type: 'sawtooth', v: 0.07, at: k * 0.06 })),
   end: () => [12, 7, 4, 0].forEach((s, k) => tone({ f: semis(523, s), d: 0.22, v: 0.1, at: k * 0.16 })),
   join: () => tone({ f: 700, f2: 1050, d: 0.12, v: 0.08 }),
+  /** upgrade pick: cards dealt, the cursor moving, a card locked in */
+  draft: () => [0, 4, 7, 11, 14].forEach((s, k) => tone({ f: semis(392, s), d: 0.16, type: 'triangle', v: 0.1, at: k * 0.07 })),
+  cursor: () => tone({ f: 1200, d: 0.03, type: 'triangle', v: 0.05 }),
+  legendary: () => [0, 4, 7, 12, 16, 19, 24].forEach((s, k) => tone({ f: semis(523, s), d: 0.25, type: 'triangle', v: 0.12, at: k * 0.06 })),
+  pick: (mine: boolean) => {
+    tone({ f: 660, f2: 990, d: 0.1, v: 0.12 * loud(mine) });
+    tone({ f: 990, f2: 1320, d: 0.16, v: 0.1 * loud(mine), at: 0.08 });
+  },
 };
